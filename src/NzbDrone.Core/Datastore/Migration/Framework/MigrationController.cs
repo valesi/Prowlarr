@@ -34,21 +34,44 @@ namespace NzbDrone.Core.Datastore.Migration.Framework
 
             _logger.Info("*** Migrating {0} ***", connectionString);
 
-            var serviceProvider = new ServiceCollection()
-                .AddLogging(b => b.AddNLog())
-                .AddFluentMigratorCore()
-                .ConfigureRunner(
-                    builder => builder
-                    .AddNzbDroneSQLite()
-                    .WithGlobalConnectionString(connectionString)
-                    .WithMigrationsIn(Assembly.GetExecutingAssembly()))
-                .Configure<TypeFilterOptions>(opt => opt.Namespace = "NzbDrone.Core.Datastore.Migration")
-                .Configure<ProcessorOptions>(opt =>
-                {
-                    opt.PreviewOnly = false;
-                    opt.Timeout = TimeSpan.FromSeconds(60);
-                })
-                .BuildServiceProvider();
+            ServiceProvider serviceProvider;
+
+            if (connectionString.Contains(".db"))
+            {
+                serviceProvider = new ServiceCollection()
+                    .AddLogging(b => b.AddNLog())
+                    .AddFluentMigratorCore()
+                    .ConfigureRunner(
+                        builder => builder
+                        .AddNzbDroneSQLite()
+                        .WithGlobalConnectionString(connectionString)
+                        .WithMigrationsIn(Assembly.GetExecutingAssembly()))
+                    .Configure<TypeFilterOptions>(opt => opt.Namespace = "NzbDrone.Core.Datastore.Migration")
+                    .Configure<ProcessorOptions>(opt =>
+                    {
+                        opt.PreviewOnly = false;
+                        opt.Timeout = TimeSpan.FromSeconds(60);
+                    })
+                    .BuildServiceProvider();
+            }
+            else
+            {
+                serviceProvider = new ServiceCollection()
+                    .AddLogging(b => b.AddNLog())
+                    .AddFluentMigratorCore()
+                    .ConfigureRunner(
+                        builder => builder
+                        .AddPostgres()
+                        .WithGlobalConnectionString(connectionString)
+                        .WithMigrationsIn(Assembly.GetExecutingAssembly()))
+                    .Configure<TypeFilterOptions>(opt => opt.Namespace = "NzbDrone.Core.Datastore.Migration")
+                    .Configure<ProcessorOptions>(opt =>
+                    {
+                        opt.PreviewOnly = false;
+                        opt.Timeout = TimeSpan.FromSeconds(60);
+                    })
+                    .BuildServiceProvider();
+            }
 
             using (var scope = serviceProvider.CreateScope())
             {

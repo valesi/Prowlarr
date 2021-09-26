@@ -45,6 +45,11 @@ namespace NzbDrone.Core.Configuration
         bool UpdateAutomatically { get; }
         UpdateMechanism UpdateMechanism { get; }
         string UpdateScriptPath { get; }
+        string PostgresHost { get; }
+        int PostgresPort { get; }
+        string PostgresUser { get; }
+        string PostgresPassword { get; }
+        string PostgresDb { get; }
     }
 
     public class ConfigFileProvider : IConfigFileProvider
@@ -184,6 +189,11 @@ namespace NzbDrone.Core.Configuration
 
         public string LogLevel => GetValue("LogLevel", "info").ToLowerInvariant();
         public string ConsoleLogLevel => GetValue("ConsoleLogLevel", string.Empty, persist: false);
+        public string PostgresHost => GetValue("PostgresHost", string.Empty);
+        public string PostgresUser => GetValue("PostgresUser", string.Empty);
+        public string PostgresPassword => GetValue("PostgresPassword", string.Empty);
+        public string PostgresDb => GetValue("PostgresDb", "prowlarr");
+        public int PostgresPort => GetValueInt("PostgresPort", 5436);
         public bool LogSql => GetValueBoolean("LogSql", false, persist: false);
         public int LogRotate => GetValueInt("LogRotate", 50, persist: false);
         public bool FilterSentryEvents => GetValueBoolean("FilterSentryEvents", true, persist: false);

@@ -11,7 +11,8 @@ namespace NzbDrone.Core.Datastore.Migration
             Alter.Table("History")
                 .AddColumn("Successful").AsBoolean().NotNullable().WithDefaultValue(true);
 
-            Execute.Sql("UPDATE History SET Successful = (json_extract(History.Data,'$.successful') == 'True' );");
+            // TODO make this PostgreSQL friendly
+            // Execute.Sql("UPDATE \"History\" SET \"Successful\" = (json_extract(\"History\".\"Data\",'$.successful') == 'True' );");
         }
     }
 }
