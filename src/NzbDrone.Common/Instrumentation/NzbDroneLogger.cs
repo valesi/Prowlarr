@@ -4,6 +4,8 @@ using System.IO;
 using NLog;
 using NLog.Config;
 using NLog.Targets;
+using NLog.Targets.Syslog;
+using NLog.Targets.Syslog.Settings;
 using NzbDrone.Common.EnvironmentInfo;
 using NzbDrone.Common.Extensions;
 using NzbDrone.Common.Instrumentation.Sentry;
@@ -21,7 +23,7 @@ namespace NzbDrone.Common.Instrumentation
             LogManager.Configuration = new LoggingConfiguration();
         }
 
-        public static void Register(IStartupContext startupContext, bool updateApp, bool inConsole)
+        public static void Register(IStartupContext startupContext, bool updateApp, bool inConsole, bool syslog)
         {
             if (_isConfigured)
             {
@@ -53,6 +55,11 @@ namespace NzbDrone.Common.Instrumentation
                 }
 
                 RegisterAppFile(appFolderInfo);
+            }
+
+            if (syslog)
+            {
+                RegisterSyslog();
             }
 
             RegisterAuthLogger();
@@ -165,10 +172,29 @@ namespace NzbDrone.Common.Instrumentation
             LogManager.Configuration.LoggingRules.Add(loggingRule);
         }
 
+        private static void RegisterSyslog()
+        {
+            var syslogTarget = new SyslogTarget();
+
+            syslogTarget.Name = "syslogTarget";
+            syslogTarget.MessageSend.Protocol = ProtocolType.Udp;
+            syslogTarget.MessageSend.Udp.Port = 1514;
+            syslogTarget.MessageSend.Udp.Server = "splunk01.homenetwork";
+            syslogTarget.MessageSend.Udp.ReconnectInterval = 500;
+            syslogTarget.MessageCreation.Rfc = RfcNumber.Rfc5424;
+            syslogTarget.MessageCreation.Rfc5424.AppName = "Prowlarr";
+
+            var loggingRule = new LoggingRule("*", LogLevel.Trace, syslogTarget);
+
+            LogManager.Configuration.AddTarget("syslogTarget", syslogTarget);
+            LogManager.Configuration.LoggingRules.Add(loggingRule);
+        }
+
         private static void RegisterAuthLogger()
         {
             var consoleTarget = LogManager.Configuration.FindTargetByName("console");
             var fileTarget = LogManager.Configuration.FindTargetByName("appFileInfo");
+            var syslogTarget = LogManager.Configuration.FindTargetByName("syslogTarget");
 
             var target = consoleTarget ?? fileTarget ?? new NullTarget();
 
@@ -177,6 +203,11 @@ namespace NzbDrone.Common.Instrumentation
             if (consoleTarget != null && fileTarget != null)
             {
                 rule.Targets.Add(fileTarget);
+            }
+
+            if (syslogTarget != null)
+            {
+                rule.Targets.Add(syslogTarget);
             }
 
             LogManager.Configuration.LoggingRules.Insert(0, rule);

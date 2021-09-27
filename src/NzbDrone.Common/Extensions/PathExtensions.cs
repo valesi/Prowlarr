@@ -11,6 +11,7 @@ namespace NzbDrone.Common.Extensions
     public static class PathExtensions
     {
         private const string APP_CONFIG_FILE = "config.xml";
+        private const string APP_SETTINGS_JSON = "appsettings.json";
         private const string DB = "prowlarr.db";
         private const string DB_RESTORE = "prowlarr.restore";
         private const string LOG_DB = "logs.db";
@@ -336,6 +337,11 @@ namespace NzbDrone.Common.Extensions
         public static string GetNlogConfigPath(this IAppFolderInfo appFolderInfo)
         {
             return Path.Combine(appFolderInfo.StartUpFolder, NLOG_CONFIG_FILE);
+        }
+
+        public static string GetAppSettingsConfigPath(this IAppFolderInfo appFolderInfo)
+        {
+            return Path.Combine(appFolderInfo.StartUpFolder, APP_SETTINGS_JSON);
         }
     }
 }

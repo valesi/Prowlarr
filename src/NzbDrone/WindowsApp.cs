@@ -20,7 +20,7 @@ namespace NzbDrone
             {
                 var startupArgs = new StartupContext(args);
 
-                NzbDroneLogger.Register(startupArgs, false, true);
+                NzbDroneLogger.Register(startupArgs, false, true, true);
 
                 Bootstrap.Start(args, e =>
                 {

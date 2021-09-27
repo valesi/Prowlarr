@@ -32,7 +32,7 @@ namespace NzbDrone.Console
                 startupArgs = new StartupContext(args);
                 try
                 {
-                    NzbDroneLogger.Register(startupArgs, false, true);
+                    NzbDroneLogger.Register(startupArgs, false, true, true);
                 }
                 catch (Exception ex)
                 {

@@ -31,7 +31,7 @@ namespace NzbDrone.Update
             try
             {
                 var startupContext = new StartupContext(args);
-                NzbDroneLogger.Register(startupContext, true, true);
+                NzbDroneLogger.Register(startupContext, true, true, true);
 
                 Logger.Info("Starting Prowlarr Update Client");
 
