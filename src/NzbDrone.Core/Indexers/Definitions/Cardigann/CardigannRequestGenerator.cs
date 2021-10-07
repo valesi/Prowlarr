@@ -721,9 +721,26 @@ namespace NzbDrone.Core.Indexers.Cardigann
 
                 AddTemplateVariablesFromUri(variables, link, ".DownloadUri");
 
-                if (download.Before != null)
+                var headers = ParseCustomHeaders(_definition.Search?.Headers, variables);
+                HttpResponse response = null;
+
+                var request = new HttpRequestBuilder(link.ToString())
+                    .SetCookies(Cookies ?? new Dictionary<string, string>())
+                    .SetHeaders(headers ?? new Dictionary<string, string>())
+                    .Build();
+
+                request.AllowAutoRedirect = true;
+
+                var beforeBlock = download.Before;
+                if (beforeBlock != null)
                 {
-                    await HandleRequest(download.Before, variables, link.ToString());
+                    if (beforeBlock.Pathselector != null)
+                    {
+                        response = await HttpClient.ExecuteProxiedAsync(request, Definition);
+                        beforeBlock.Path = MatchSelector(response, beforeBlock.Pathselector, variables);
+                    }
+
+                    response = await HandleRequest(beforeBlock, variables, link.ToString());
                 }
 
                 if (download.Method == "post")
@@ -731,23 +748,51 @@ namespace NzbDrone.Core.Indexers.Cardigann
                     method = HttpMethod.POST;
                 }
 
-                if (download.Selectors != null)
+                if (download.Infohash != null)
                 {
-                    var headers = ParseCustomHeaders(_definition.Search?.Headers, variables);
+                    try
+                    {
+                        headers = ParseCustomHeaders(_definition.Search?.Headers, variables);
 
-                    var request = new HttpRequestBuilder(link.ToString())
-                        .SetCookies(Cookies ?? new Dictionary<string, string>())
-                        .SetHeaders(headers ?? new Dictionary<string, string>())
-                        .Build();
+                        if (!download.Infohash.UseBeforeResponse || download.Before == null || response == null)
+                        {
+                            response = await HttpClient.ExecuteProxiedAsync(request, Definition);
+                        }
 
-                    request.AllowAutoRedirect = true;
+                        var hash = MatchSelector(response, download.Infohash.Hash, variables);
+                        if (hash == null)
+                        {
+                            throw new Exception($"InfoHash selectors didn't match");
+                        }
 
-                    var response = await HttpClient.ExecuteProxiedAsync(request, Definition);
+                        var title = MatchSelector(response, download.Infohash.Title, variables);
+                        if (title == null)
+                        {
+                            throw new Exception($"InfoHash selectors didn't match");
+                        }
 
-                    var results = response.Content;
+                        var magnet = MagnetLinkBuilder.BuildPublicMagnetLink(hash, title);
+                        var torrentLink = ResolvePath(magnet, link);
 
-                    var searchResultParser = new HtmlParser();
-                    var searchResultDocument = searchResultParser.ParseDocument(results);
+                        var hashDownloadRequest = new HttpRequestBuilder(torrentLink.AbsoluteUri)
+                            .SetCookies(Cookies ?? new Dictionary<string, string>())
+                            .Build();
+
+                        hashDownloadRequest.Method = method;
+
+                        return hashDownloadRequest;
+                    }
+                    catch (Exception)
+                    {
+                        _logger.Error(string.Format("CardigannIndexer ({0}): Exception with InfoHash block with hashSelector {1} and titleSelector {2}",
+                            _definition.Id,
+                            download.Infohash.Hash.Selector,
+                            download.Infohash.Title.Selector));
+                    }
+                }
+                else if (download.Selectors != null)
+                {
+                    headers = ParseCustomHeaders(_definition.Search?.Headers, variables);
 
                     foreach (var selector in download.Selectors)
                     {
@@ -755,38 +800,49 @@ namespace NzbDrone.Core.Indexers.Cardigann
 
                         try
                         {
-                            var downloadElement = searchResultDocument.QuerySelector(queryselector);
-                            if (downloadElement != null)
+                            if (!selector.UseBeforeResponse || download.Before == null || response == null)
                             {
-                                _logger.Debug(string.Format("CardigannIndexer ({0}): Download selector {1} matched:{2}", _definition.Id, queryselector, downloadElement.ToHtmlPretty()));
-
-                                var href = "";
-                                if (selector.Attribute != null)
-                                {
-                                    href = downloadElement.GetAttribute(selector.Attribute);
-                                    if (href == null)
-                                    {
-                                        throw new Exception(string.Format("Attribute \"{0}\" is not set for element {1}", selector.Attribute, downloadElement.ToHtmlPretty()));
-                                    }
-                                }
-                                else
-                                {
-                                    href = downloadElement.TextContent;
-                                }
-
-                                href = ApplyFilters(href, selector.Filters, variables);
-                                link = ResolvePath(href, link);
-                                break;
+                                response = await HttpClient.ExecuteProxiedAsync(request, Definition);
                             }
-                            else
+
+                            var href = MatchSelector(response, selector, variables, debugMatch: true);
+                            if (href == null)
                             {
-                                _logger.Error(string.Format("CardigannIndexer ({0}): Download selector {1} didn't match:\n{2}", _definition.Id, queryselector, results));
                                 continue;
                             }
+
+                            var torrentLink = ResolvePath(href, link);
+                            if (torrentLink.Scheme != "magnet" && _definition.TestLinkTorrent)
+                            {
+                                // Test link
+                                var testLinkRequest = new HttpRequestBuilder(torrentLink.ToString())
+                                    .SetCookies(Cookies ?? new Dictionary<string, string>())
+                                    .SetHeaders(headers ?? new Dictionary<string, string>())
+                                    .Build();
+
+                                response = await HttpClient.ExecuteProxiedAsync(testLinkRequest, Definition);
+
+                                var content = response.Content;
+                                if (content.Length >= 1 && content[0] != 'd')
+                                {
+                                    _logger.Debug($"CardigannIndexer ({_definition.Id}): Download selector {queryselector}'s torrent file is invalid, retrying with next available selector");
+                                    continue;
+                                }
+                            }
+
+                            link = torrentLink;
+
+                            var selectorDownloadRequest = new HttpRequestBuilder(link.AbsoluteUri)
+                                .SetCookies(Cookies ?? new Dictionary<string, string>())
+                                .Build();
+
+                            selectorDownloadRequest.Method = method;
+
+                            return selectorDownloadRequest;
                         }
                         catch (Exception e)
                         {
-                            _logger.Error(string.Format("{0} CardigannIndexer ({1}): An exception occurred while trying selector {2}, retrying with next available selector", e, _definition.Id, queryselector));
+                            _logger.Error("{0} CardigannIndexer ({1}): An exception occurred while trying selector {2}, retrying with next available selector", e, _definition.Id, queryselector);
                             throw new Exception(string.Format("An exception occurred while trying selector {0}", queryselector));
                         }
                     }
@@ -800,6 +856,44 @@ namespace NzbDrone.Core.Indexers.Cardigann
             downloadRequest.Method = method;
 
             return downloadRequest;
+        }
+
+        protected string MatchSelector(HttpResponse response, SelectorField selector, Dictionary<string, object> variables, bool debugMatch = false)
+        {
+            var selectorText = ApplyGoTemplateText(selector.Selector, variables);
+            var parser = new HtmlParser();
+
+            var results = response.Content;
+            var resultDocument = parser.ParseDocument(results);
+
+            var element = resultDocument.QuerySelector(selectorText);
+            if (element == null)
+            {
+                _logger.Debug($"CardigannIndexer ({_definition.Id}): Selector {selectorText} could not match any elements.");
+                return null;
+            }
+
+            if (debugMatch)
+            {
+                _logger.Debug($"CardigannIndexer ({_definition.Id}): Download selector {selector} matched:{element.ToHtmlPretty()}");
+            }
+
+            string val;
+            if (selector.Attribute != null)
+            {
+                val = element.GetAttribute(selector.Attribute);
+                if (val == null)
+                {
+                    throw new Exception($"Attribute \"{selector.Attribute}\" is not set for element {element.ToHtmlPretty()}");
+                }
+            }
+            else
+            {
+                val = element.TextContent;
+            }
+
+            val = ApplyFilters(val, selector.Filters, variables);
+            return val;
         }
 
         public bool CheckIfLoginIsNeeded(HttpResponse response)
